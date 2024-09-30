@@ -2,7 +2,7 @@
     "token_secret": "35c8...",
     "secure": true,
     "base_url": "localhost",
-    "gateway_url": "https://meowcord.onrender.com/api/v6/gateway",
+    "gateway_url": "/api/v6/gateway",
     "port": 8080,
     "ws_port": 8080,
     "cache404s": false,
