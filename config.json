@@ -2,7 +2,7 @@
     "token_secret": "35c8...",
     "secure": false,
     "base_url": "localhost",
-    "gateway_url": "",
+    "gateway_url": "https://oldcordv3-test.onrender.com/api/v6/gateway",
     "port": 5432,
     "ws_port": 5432,
     "cache404s": false,
