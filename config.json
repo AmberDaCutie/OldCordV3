@@ -3,7 +3,7 @@
     "secure": false,
     "base_url": "localhost",
     "gateway_url": "https://meowcord.onrender.com/api/v6/gateway",
-    "port": 8080,
+    "port": 10000,
     "ws_port": 5432,
     "cache404s": false,
     "serve_selector": true,
