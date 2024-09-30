@@ -4,7 +4,7 @@
     "base_url": "localhost",
     "gateway_url": "meowcord.onrender.com",
     "port": 8080,
-    "ws_port": 5432,
+    "ws_port": 443,
     "cache404s": false,
     "serve_selector": true,
     "instance_name": "meowcord",
