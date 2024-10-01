@@ -3,7 +3,7 @@
     "secure": true,
     "base_url": "localhost",
     "gateway_url": "staging.oldcordapp.com",
-    "port": 8080,
+    "port": 443,
     "ws_port": 443,
     "cache404s": false,
     "serve_selector": true,
