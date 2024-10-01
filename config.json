@@ -1,10 +1,10 @@
 {
     "token_secret": "35c8...",
     "secure": true,
-    "base_url": "localhost",
+    "base_url": "meowcord.onrender.com",
     "gateway_url": "meowcord.onrender.com",
     "port": 8080,
-    "ws_port": 1337,
+    "ws_port": 5432,
     "cache404s": false,
     "serve_selector": true,
     "instance_name": "Meowcord",
