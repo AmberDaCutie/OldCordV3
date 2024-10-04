@@ -27,7 +27,7 @@
         "password": "bxt0WTRFnHk7HeOKzeHIOhiyrjeeQNor"
     },
     "email_config" : {
-        "fromAddress" : pinkiepief1@gmail..com",
+        "fromAddress" : pinkiepief1@gmail.com",
         "brevo-api-key" : "",
         "enabled": false
     },
