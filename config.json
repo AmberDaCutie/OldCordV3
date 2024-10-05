@@ -1,15 +1,15 @@
 {
     "token_secret": "35c8...",
-    "secure": false,
-    "base_url": "127.0.0.1",
-    "gateway_url": "",
-    "signaling_server_url" : "127.0.0.1:5000",
-    "port": 1337,
-    "ws_port": 1337,
+    "secure": true,
+    "base_url": "meowcord.onrender.com",
+    "gateway_url": "meowcord.onrender.com",
+    "signaling_server_url" : "meowcord.onrender.com",
+    "port": 443,
+    "ws_port": 443,
     "cache404s": false,
     "serve_selector": true,
-    "instance_name": "Staging",
-    "instance_description": "An oldcord v3 instance",
+    "instance_name": "Meowcord",
+    "instance_description": "meow :3",
     "instance_flags": [],
     "cert_path": "",
     "key_path": "",
@@ -20,11 +20,11 @@
         "enabled" : true
      },
     "db_config" : {
-        "host": "localhost",
-        "port": 5433,
-        "database": "oldcord_v3",
-        "user": "postgres",
-        "password": "postgres_password"
+        "host": "dpg-crtbi9o8fa8c73ctu1qg-a",
+        "port": 5432,
+        "database": "meowcord_db",
+        "user": "m_e_o_w",
+        "password": "bxt0WTRFnHk7HeOKzeHIOhiyrjeeQNor"
     },
     "email_config" : {
         "fromAddress" : "support@example.com",
@@ -33,7 +33,7 @@
     },
     "gcs_config" : { },
     "trusted_users" : [],
-    "custom_invite_url" : "",
+    "custom_invite_url" : "meowcord.mew/invite",
     "integration_config" : [],
     "ratelimit_config" : {
         "enabled" : false,
