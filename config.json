@@ -32,10 +32,11 @@
         "brevo-api-key": "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",
         "enabled": false
     },
+    },
     "limits" : {
         "username" : {
             "min" : 2,
-            "max" : 100
+            "max" : 30
         },
         "password" : {
             "min" : 8,
@@ -69,7 +70,7 @@
             "max_size" : 25000000
         },
         "guilds_per_account" : {
-            "max" : 222
+            "max" : 70
         },
         "invites_per_guild" : {
             "max" : 100
@@ -78,15 +79,15 @@
             "max" : 100
         },
         "channels_per_guild" : {
-            "max" : 222
+            "max" : 100
         },
         "emojis_per_guild" : {
-            "max" : 1000
+            "max" : 400
         }
     },
     "gcs_config" : { },
     "trusted_users" : [],
-    "custom_invite_url" : "meowcord.onrender.com",
+    "custom_invite_url" : "meowcord.mew",
     "integration_config" : [],
     "ratelimit_config" : {
         "enabled" : false,
@@ -236,5 +237,5 @@
             "breakdown" : "1000 * 60 * 60"
         }
      },
-    "serveDesktopClient": false
+     "serveDesktopClient" : false
 }
