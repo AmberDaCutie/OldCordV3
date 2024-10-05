@@ -145,11 +145,6 @@ class session {
         for(let i = 0; i < current_guilds.length; i++) {
             let guild = current_guilds[i];
 
-            if (globalUtils.serverRegionToYear(guild.region) == 2015) {
-                if (this.presence.status == "dnd") this.presence.status = "online";
-                else if (this.presence.status == "invisible") this.presence.status = "offline"; 
-            }
-            
             this.presence.guild_id = guild.id;
 
             let personalizedPresenceObj = this.presence;
@@ -201,7 +196,7 @@ class session {
 
         global.sessions.delete(this.id);
 
-        if (uSessions.length == 0) {
+        if (!uSessions || uSessions.length == 0) {
             await this.updatePresence("offline", null);
         } else await this.updatePresence(uSessions[uSessions.length - 1].presence.status, uSessions[uSessions.length - 1].presence.game_id);
     }
@@ -302,11 +297,11 @@ class session {
                         continue;
                     }
     
-                    if (guild.region != "everything" && year != parseInt(guild.region)) {
+                    if (guild.region != "everything" && globalUtils.canUseServer(year, guild.region)) {
                         guild.channels = [{
                             type: this.socket.channel_types_are_ints ? 0 : "text",
                             name: guild.name.replace(/" "/g, "_"),
-                            topic: `This server only supports ${guild.region} and you're using ${year}! Please change your client and try again.`,
+                            topic: `This server only supports ${globalUtils.serverRegionToYear(guild.region)} and you're using ${year}! Please change your client and try again.`,
                             last_message_id: "0",
                             id: `12792182114301050${Math.round(Math.random() * 100).toString()}`,
                             parent_id: null,
@@ -324,7 +319,7 @@ class session {
                             mentionable: false
                         }]
                 
-                        guild.name = `${guild.region} ONLY! CHANGE BUILD`;
+                        guild.name = `${globalUtils.serverRegionToYear(guild.region)} ONLY! CHANGE BUILD`;
                         guild.owner_id = "1279218211430105089";
     
                         continue;
@@ -420,6 +415,7 @@ class session {
             
             let connectedAccounts = await global.database.getConnectedAccounts(this.user.id);
             let guildSettings = await global.database.getUsersGuildSettings(this.user.id);
+            let notes = await global.database.getNotesByAuthorId(this.user.id);
             
             this.relationships = this.user.relationships;
 
@@ -443,7 +439,7 @@ class session {
                 user_settings: this.user.settings,
                 session_id: this.id,
                 friend_suggestion_count: 0,
-                notes: [],
+                notes: notes,
                 analytics_token: globalUtils.generateString(20),
                 experiments: (month == 3 && year == 2018) ? ["2018-4_april-fools"] : [], //for 2018 clients
                 connected_accounts: connectedAccounts ?? [],

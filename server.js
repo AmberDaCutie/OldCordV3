@@ -16,6 +16,8 @@ const dispatcher = require('./helpers/dispatcher');
 const permissions = require('./helpers/permissions');
 const config = globalUtils.config;
 const app = express();
+const emailer = require('./helpers/emailer');
+const fetch = require('node-fetch');
 
 app.set('trust proxy', 1);
 
@@ -23,11 +25,25 @@ database.setupDatabase();
 
 global.dispatcher = dispatcher;
 global.gateway = gateway;
+
+if (globalUtils.config.email_config.enabled) {
+    global.emailer = new emailer(globalUtils.config.email_config, globalUtils.config.max_per_timeframe_ms, globalUtils.config.timeframe_ms, globalUtils.config.ratelimit_modifier);
+}
+
 global.sessions = new Map();
 global.userSessions = new Map();
 global.database = database;
 global.permissions = permissions;
 global.config = globalUtils.config;
+
+const portAppend = globalUtils.nonStandardPort ? ":" + config.port : "";
+const base_url = config.base_url + portAppend;
+
+global.full_url = base_url;
+
+process.on('uncaughtException', (error) => {
+    logText(error, "error");
+});
 
 //Load certificates (if any)
 let certificates = null;
@@ -76,6 +92,28 @@ app.use(express.json({
 app.use(cookieParser());
 
 app.use(cors());
+
+app.get('/proxy', async (req, res) => {
+    let url = req.query.url;
+    
+    if (!url) {
+        url = "https://i-love.nekos.zip/ztn1pSsdos.png"
+    }
+
+    try {
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            return res.status().send('Failed to proxy URL');
+        }
+
+        res.setHeader('Content-Type', response.headers.get('content-type'));
+
+        response.body.pipe(res);
+    } catch (error) {
+        res.status(500).send('Error fetching the image');
+    }
+});
 
 app.get('/attachments/:guildid/:channelid/:filename', async (req, res) => {
     const baseFilePath = path.join(__dirname, 'www_dynamic', 'attachments', req.params.guildid, req.params.channelid, req.params.filename);
@@ -416,7 +454,10 @@ app.get("/launch", (req, res) => {
         return res.redirect("/selector");
     }
     
-    res.cookie('release_date', req.query.release_date);
+    res.cookie('release_date', req.query.release_date, {
+        maxAge: 100 * 365 * 24 * 60 * 60 * 1000,
+        httpOnly: true
+    });
 
     res.redirect("/");
 });
@@ -434,6 +475,7 @@ app.get("/bootloaderConfig", (req, res) => {
         instance_description: config.instance_description,
         custom_invite_url: config.custom_invite_url == "" ? base_url + "/invite" : config.custom_invite_url,
         gateway: globalUtils.generateGatewayURL(req),
+        captcha_options: config.captcha_config
     });
 });
 

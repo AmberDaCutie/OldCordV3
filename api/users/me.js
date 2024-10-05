@@ -8,6 +8,12 @@ const Snowflake = require('../../helpers/snowflake');
 
 router.use("/relationships", relationships);
 
+router.param('userid', async (req, res, next, userid) => {
+  req.user = await global.database.getAccountByUserId(userid);
+
+  next();
+});
+
 router.param('guildid', async (req, _, next, guildid) => {
     req.guild = await global.database.getGuildById(guildid);
 
@@ -40,6 +46,7 @@ router.get("/", async (req, res) => {
 router.patch("/", rateLimitMiddleware(global.config.ratelimit_config.updateMe.maxPerTimeFrame, global.config.ratelimit_config.updateMe.timeFrame), async (req, res) => {
   try {
     let account = req.account;
+    let originalAcc = account;
 
     if (!account) {
         return res.status(401).json({
@@ -281,6 +288,12 @@ router.patch("/", rateLimitMiddleware(global.config.ratelimit_config.updateMe.ma
 
     account = globalUtils.sanitizeObject(account, ['settings', 'created_at', 'password', 'relationships', 'claimed']);
 
+    if (originalAcc.email != account.email) {
+       account.verified = false;
+
+       await global.database.unverifyEmail(account.id);
+    } //unverify them as they need to uh verify with their new email thingimajig
+
     return res.status(200).json(account);
   } catch (error) {
     logText(error, "error");
@@ -354,6 +367,65 @@ router.patch("/settings", async (req, res) => {
         message: "Internal Server Error"
       })
     }
+  } catch (error) {
+    logText(error, "error");
+
+    return res.status(500).json({
+      code: 500,
+      message: "Internal Server Error"
+    })
+  }
+});
+
+router.put("/notes/:userid", async (req, res) => {
+  //updateNoteForUserId
+  try {
+    let account = req.account;
+
+    if (!account) {
+        return res.status(401).json({
+            code: 401,
+            message: "Unauthorized"
+        });
+    }
+
+    let user = req.user;
+
+    if (!user) {
+      return res.status(404).json({
+        code: 404,
+        message: "Unknown User"
+      });
+    }
+
+    let new_notes = null;
+
+    if (req.body.note && req.body.note.length > 1) {
+      new_notes = req.body.note;
+    }
+
+    if (new_notes && new_notes.length > 250) {
+      return res.status(400).json({
+        code: 400,
+        message: "User notes must be between 1 and 250 characters."
+      });
+    }
+
+    let tryUpdate = await global.database.updateNoteForUserId(account.id, user.id, new_notes);
+
+    if (!tryUpdate) {
+      return res.status(500).json({
+        code: 500,
+        message: "Internal Server Error"
+      })
+    }
+
+    await global.dispatcher.dispatchEventTo(account.id, "USER_NOTE_UPDATE", {
+      id: user.id,
+      note: new_notes
+    });
+
+    return res.status(204).send();
   } catch (error) {
     logText(error, "error");
 

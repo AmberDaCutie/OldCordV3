@@ -28,11 +28,9 @@ async function syncPresence(socket, packet) {
         
         if (packet.d.afk) {
             setStatusTo = "idle";
+        } else if (packet.d.afk === false && packet.d.since === 0 && packet.d.status === "idle") {
+            setStatusTo = "online";
         }
-
-        if (!packet.d.afk && packet.d.since && packet.d.since === 0) {
-            setStatusTo = "online"; //no longer afk?
-        } 
     }
 
     // Sync
@@ -166,7 +164,7 @@ const gateway = {
 
                         let user = await global.database.getAccountByToken(packet.d.token);
 
-                        if (user == null) {
+                        if (user == null || user.disabled_until) {
                             return socket.close(4004, "Authentication failed");
                         }
 
@@ -191,7 +189,24 @@ const gateway = {
 
                         await socket.session.prepareReady();
 
-                        await socket.session.updatePresence(socket.user.settings.status ?? "online", null);
+                        let pastPresence = packet.d.presence;
+
+                        if (!pastPresence) {
+                            pastPresence = {
+                                status: socket.user.settings.status ?? "online",
+                                since: 0,
+                                afk: false,
+                                game: null
+                            }
+                        }
+
+                        let setStatusTo = pastPresence.status;
+
+                        if (setStatusTo && setStatusTo.status === 'idle' && setStatusTo.since === 0 && !setStatusTo.afk) {
+                            setStatusTo = 'online';
+                        }
+
+                        await socket.session.updatePresence(setStatusTo, null);
                     } else if (packet.op == 1) {
                         if (!socket.hb) return;
 
@@ -201,6 +216,30 @@ const gateway = {
                         if (!socket.session) return socket.close(4003, 'Not authenticated');
 
                         await syncPresence(socket, packet);
+                    } else if (packet.op == 4) {
+                        if (!socket.session) return socket.close(4003, 'Not authenticated');
+
+                        let guild_id = packet.d.guild_id;
+                        let channel_id = packet.d.channel_id;
+                        let self_mute = packet.d.self_mute;
+                        let self_deaf = packet.d.self_deaf;
+
+                        socket.session.dispatch("VOICE_STATE_UPDATE", {
+                            channel_id: channel_id,
+                            user_id: socket.user.id,
+                            session_id: globalUtils.generateString(30),
+                            deaf: false,
+                            mute: false,
+                            self_deaf: self_deaf,
+                            self_mute: self_mute,
+                            suppress: false
+                        });
+
+                        socket.session.dispatch("VOICE_SERVER_UPDATE", {
+                            token: globalUtils.generateString(30),
+                            guild_id: guild_id,
+                            endpoint: "ws://" + global.config.signaling_server_url
+                        });
                     } else if (packet.op == 12) {
                         if (!socket.session) return;
 

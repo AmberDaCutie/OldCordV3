@@ -5,6 +5,9 @@ const globalUtils = require('../helpers/globalutils');
 const Snowflake = require('../helpers/snowflake');
 const fs = require('fs');
 const router = express.Router({ mergeParams: true });
+const fetch = require('node-fetch');
+const path = require("path");
+const md5 = require('md5');
 
 router.param('webhookid', async (req, res, next, webhookid) => {
     req.webhook = await global.database.getWebhookById(webhookid);
@@ -206,16 +209,75 @@ router.post("/:webhookid/:webhooktoken", async (req, res) => {
         if (req.body.avatar_url) {
             create_override = true;
 
-            override.avatar_url = req.body.avatar_url;
+            try {
+                const response = await fetch(req.body.avatar_url);
+
+                if (response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    const extension = contentType.split('/')[1]; // 'png', 'jpeg', etc.
+            
+                    var name = Math.random().toString(36).substring(2, 15) + Math.random().toString(23).substring(2, 5);
+                    var name_hash = md5(name);
+
+                    if (extension == "jpeg") {
+                        extension = "jpg";
+                    }
+        
+                    if (!fs.existsSync(`./www_dynamic/avatars/${webhook.id}`)) {
+                        fs.mkdirSync(`./www_dynamic/avatars/${webhook.id}`, { recursive: true });
+                    }
+    
+                    const buffer = await response.buffer();
+
+                    await fs.promises.writeFile(`./www_dynamic/avatars/${webhook.id}/${name_hash}.${extension}`, buffer);
+        
+                    override.avatar_url = name_hash;
+                }
+            } catch (error) {
+                logText(error, "error");
+            }
         }
 
         let override_id = Snowflake.generate();
 
         let createMessage = null;
+        let embeds = [];
+
+        if (req.body.embeds) {
+            for(var embed of req.body.embeds) {
+                let embedObj = {
+                    type: "rich",
+                    color: embed.color ?? 7506394
+                };
+
+                if (embed.title) {
+                    embedObj.title = embed.title;
+                }
+
+                if (embed.description) {
+                    embedObj.description = embed.description;
+                }
+
+                if (embed.author) {
+                    embedObj.author = {
+                        icon_url: embed.author.icon_url ? `/proxy?url=${embed.author.icon_url}` : null,
+                        name: embed.author.name ?? null,
+                        proxy_icon_url: embed.author.icon_url ? `/proxy?url=${embed.author.icon_url}` : null,
+                        url: embed.author.url ?? null
+                    }
+                }
+
+                if (embed.fields) {
+                    embedObj.fields = embed.fields;
+                }
+
+                embeds.push(embedObj);
+            }
+        }
 
         if (create_override) {
-            createMessage = await global.database.createMessage(!channel.guild_id ? null : channel.guild_id, channel.id, "WEBHOOK_" + webhook.id + "_" + override_id, req.body.content, req.body.nonce, null, req.body.tts, false, override, []);
-        } else createMessage = await global.database.createMessage(!channel.guild_id ? null : channel.guild_id, channel.id, "WEBHOOK_" + webhook.id, req.body.content, req.body.nonce, null, req.body.tts, false, null, []);
+            createMessage = await global.database.createMessage(!channel.guild_id ? null : channel.guild_id, channel.id, "WEBHOOK_" + webhook.id + "_" + override_id, req.body.content, req.body.nonce, null, req.body.tts, false, override, embeds);
+        } else createMessage = await global.database.createMessage(!channel.guild_id ? null : channel.guild_id, channel.id, "WEBHOOK_" + webhook.id, req.body.content, req.body.nonce, null, req.body.tts, false, null, embeds);
 
         if (!createMessage) {
             return res.status(500).json({
@@ -234,8 +296,8 @@ router.post("/:webhookid/:webhooktoken", async (req, res) => {
                 });
             }
 
-            createMessage.author.username = override.username;
-            createMessage.author.avatar = null; //to-do
+            createMessage.author.username = override.username ?? webhook.name;
+            createMessage.author.avatar = override.avatar_url; //to-do
         }
 
         await global.dispatcher.dispatchEventInChannel(guild, channel.id, "MESSAGE_CREATE", createMessage);
@@ -282,6 +344,21 @@ router.post("/:webhookid/:webhooktoken/github", async (req, res) => {
             }); 
         }
 
+        let override = {
+            username: "GitHub",
+            avatar_url: "github"
+        };
+
+        if (!fs.existsSync(`./www_dynamic/avatars/${webhook.id}`)) {
+            fs.mkdirSync(`./www_dynamic/avatars/${webhook.id}`, { recursive: true });
+        }
+        
+        if (!fs.existsSync(`./www_dynamic/avatars/${webhook.id}/github.png`)) {
+            fs.copyFileSync(`./www_static/assets/misc/github.png`, `./www_dynamic/avatars/${webhook.id}/github.png`);
+        }
+
+        let override_id = Snowflake.generate();
+
         let embeds = [];
 
         if (req.body.commits && req.body.commits.length > 0) {
@@ -317,7 +394,7 @@ router.post("/:webhookid/:webhooktoken/github", async (req, res) => {
             }]
         }
 
-        const createMessage = await global.database.createMessage(!channel.guild_id ? null : channel.guild_id, channel.id, "WEBHOOK_" + webhook.id, req.body.content, req.body.nonce, null, req.body.tts, false, req.body.username ? { username: req.body.username } : null, embeds);
+        const createMessage = await global.database.createMessage(!channel.guild_id ? null : channel.guild_id, channel.id, "WEBHOOK_" + webhook.id, req.body.content, req.body.nonce, null, req.body.tts, false, override, embeds);
 
         if (!createMessage) {
             return res.status(500).json({
@@ -325,6 +402,18 @@ router.post("/:webhookid/:webhooktoken/github", async (req, res) => {
                 message: "Internal Server Error"
             });
         }
+
+        let tryCreateOverride = await global.database.createWebhookOverride(webhook.id, override_id, override.username, override.avatar_url);
+
+        if (!tryCreateOverride) {
+            return res.status(500).json({
+                code: 500,
+                message: "Internal Server Error"
+            });
+        }
+
+        createMessage.author.username = override.username;
+        createMessage.author.avatar = override.avatar_url;
 
         await global.dispatcher.dispatchEventInChannel(guild, channel.id, "MESSAGE_CREATE", createMessage);
 
