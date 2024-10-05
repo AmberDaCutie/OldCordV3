@@ -1,9 +1,9 @@
 {
     "token_secret": "35c8...",
-    "secure": false,
+    "secure": true,
     "base_url": "meowcord.onrender.com",
     "gateway_url": "meowcord.onrender.com",
-    "signaling_server_url" : "meowcord.onrender.com:443",
+    "signaling_server_url" : "meowcord.onrender.com",
     "port": 443,
     "ws_port": 443,
     "cache404s": false,
