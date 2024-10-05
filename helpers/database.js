@@ -7,81 +7,77 @@ const fs = require('fs');
 const md5 = require('md5');
 const path = require('path');
 const embedder = require('./embedder');
+const fsPromises = require('fs').promises;
 
 let db_config = globalUtils.config.db_config;
 let config = globalUtils.config;
 
 const pool = new Pool(db_config);
+
 let cache = {};
 
 const database = {
-    client: null,
     runQuery: async (queryString, values) => {
-        if (database.client == null) {
-            database.client = await pool.connect();
-            database.client.on('error', (err) => {
-                console.log(err);
-            });
-            database.client.connection.on('error', (err) => {
-                console.log(err);
-            });
-        }
+        //ngl chat gpt helped me fix the caching on this - and suggested i used multiple clients from a pool instead, hopefully this does something useful lol
+
+        const query = {
+            text: queryString,
+            values: values
+        };
+
+        const cacheKey = JSON.stringify(query);
         
+        const client = await pool.connect();
+        
+        let isWriteQuery = false;
+
         try {
-            const query = {
-                text: queryString,
-                values: values
-            };
+            isWriteQuery = /INSERT\s+INTO|UPDATE|DELETE\s+FROM/i.test(queryString);
 
-            const cacheKey = JSON.stringify(query);
-
-            if (queryString.includes("SELECT * ")) {
+            if (isWriteQuery)
+                await client.query('BEGIN');
+    
+            if (/SELECT\s+\*\s+FROM/i.test(queryString)) {
                 if (cache[cacheKey]) {
                     return cache[cacheKey];
                 }
+            }
 
-                const result = await database.client.query(query);
-
-                const rows = result.rows;
-
-                if (rows.length === 0) {
-                    return null;
-                }
-
-                cache[cacheKey] = rows;
-        
-                return rows;
-            } else if (queryString.includes("DELETE FROM") || queryString.includes("UPDATE") || queryString.includes("INSERT INTO")) {
-                let tableName  = "";
-
-                if (queryString.startsWith("DELETE FROM")) {
-                    tableName = queryString.split(' ')[2];
-                } else if (queryString.startsWith("UPDATE")) {
-                    tableName = queryString.split('SET')[0].split('UPDATE ')[1].split(' ')[0];
-                } else if (queryString.startsWith("INSERT INTO")) {
-                    tableName = queryString.split('INSERT INTO ')[1].split(' ')[0];
-                }
-
-                for (const key in cache) {
-                    if (key.includes(tableName)) {
-                        delete cache[key];
+            if (isWriteQuery) {
+                const tableNameMatch = queryString.match(/(?:FROM|INTO|UPDATE)\s+(\S+)/i);
+                const tableName = tableNameMatch ? tableNameMatch[1] : null;
+    
+                if (tableName) {
+                    for (const key in cache) {
+                        if (key.includes(tableName)) {
+                            delete cache[key];
+                        }
                     }
                 }
             }
 
-            const result = await database.client.query(query);
-
+            const result = await client.query(query);
             const rows = result.rows;
 
-            if (rows.length === 0) {
-                return null;
+            if (/SELECT\s+\*\s+FROM/i.test(queryString) && rows.length > 0) {
+                cache[cacheKey] = rows;
+            }
+
+            if (isWriteQuery) {
+                await client.query('COMMIT');
+            }
+
+            return rows.length === 0 ? null : rows;
+        } catch (error) {
+            if (isWriteQuery) {
+                await client.query('ROLLBACK');
             }
     
-            return rows;
-        } catch (error) {
-            logText(error, "error");
+            logText(`Error with query: ${queryString}, values: ${JSON.stringify(values)} - ${error}`, "error");
 
             return null;
+        } finally {
+            client.release();
         }
     },
     setupDatabase: async () => {
@@ -100,12 +96,22 @@ const database = {
                 bot INTEGER DEFAULT 0,
                 relationships TEXT DEFAULT '[]',
                 flags INTEGER DEFAULT 0,
+                registration_ip TEXT DEFAULT NULL,
+                email_token TEXT DEFAULT NULL,
+                last_login_ip TEXT DEFAULT NULL,
                 private_channels TEXT DEFAULT '[]',
                 settings TEXT DEFAULT '{"show_current_game":false,"inline_attachment_media":true,"inline_embed_media":true,"render_embeds":true,"render_reactions":true,"sync":true,"theme":"dark","enable_tts_command":true,"message_display_compact":false,"locale":"en-US","convert_emoticons":true,"restricted_guilds":[],"allow_email_friend_request":false,"friend_source_flags":{"all":true},"developer_mode":true,"guild_positions":[],"detect_platform_accounts":false,"status":"online"}',
                 guild_settings TEXT DEFAULT '[]',
                 disabled_until TEXT DEFAULT NULL,
                 disabled_reason TEXT DEFAULT NULL
            );`, []); // 4 = Everyone, 3 = Friends of Friends & Server Members, 2 = Friends of Friends, 1 = Server Members, 0 = No one
+
+           await database.runQuery(`
+            CREATE TABLE IF NOT EXISTS user_notes (
+                author_id TEXT,
+                user_id TEXT,
+                note TEXT DEFAULT NULL
+            );`, []);
 
            await database.runQuery(`
             CREATE TABLE IF NOT EXISTS dm_channels (
@@ -346,6 +352,58 @@ const database = {
 
             return false;
         }
+    },
+    internalDisableAccount: async (staff, user_id, disabled_until, public_reason, audit_log_reason) => {
+        try {
+            if (user_id === staff.user_id || user_id === '1279218211430105089') {
+                return false;
+            } // Safety net
+    
+            // If disabled_until is not provided, default to 'FOREVER'
+            if (!disabled_until) {
+                disabled_until = 'FOREVER';
+            }
+    
+            await database.runQuery(`
+                UPDATE users SET disabled_until = $1, disabled_reason = $2 WHERE id = $3
+            `, [disabled_until, public_reason, user_id]);
+    
+            let audit_log = staff.audit_log;
+    
+            let audit_entry = {
+                moderation_id: Snowflake.generate(),
+                timestamp: new Date().toISOString(),
+                action: "disable_user",
+                moderated: {
+                    id: user_id,
+                    until_forever: disabled_until === 'FOREVER',
+                    until_when: disabled_until // Storing the text 'FOREVER' or actual date in the audit log
+                },
+                reasoning: audit_log_reason
+            };
+    
+            audit_log.push(audit_entry);
+    
+            await database.updateInternalAuditLog(staff.user_id, audit_log);
+    
+            return audit_entry;
+        } catch (error) {
+            logText(error, "error");
+            return null;
+        } 
+    },
+    updateInternalAuditLog: async (staff_id, new_log) => {
+        try {
+            await database.runQuery(`
+                UPDATE staff SET audit_log = $1 WHERE user_id = $2
+            `, [JSON.stringify(new_log), staff_id]);
+
+            return true;
+        } catch (error) {
+            logText(error, "error");
+
+            return false;
+        } 
     },
     setPrivateChannels: async (user_id, private_channels) => {
         try {
@@ -724,7 +782,7 @@ const database = {
                         email: row.email,
                         password: row.password,
                         token: row.token,
-                        verified: true,
+                        verified: row.verified == 1 ? true : false,
                         flags: row.flags ?? 0,
                         bot: row.bot == 1 ? true : false,
                         created_at: row.created_at,
@@ -742,20 +800,87 @@ const database = {
                         email: row.email,
                         password: row.password,
                         token: row.token,
-                        verified: true,
+                        verified: row.verified == 1 ? true : false,
                         flags: row.flags ?? 0,
                         bot: row.bot == 1 ? true : false,
                         created_at: row.created_at,
                         settings: JSON.parse(row.settings)
                     })
             }
-            
 
             return ret;
         } catch (error) {  
             logText(error, "error");
 
             return [];
+        }
+    },
+    checkEmailToken: async (token) => {
+        try {
+            if (!token || token === "NULL") return null;
+
+            let rows = await database.runQuery(`SELECT * FROM users WHERE email_token = $1`, [token]);
+
+            if (rows === null || rows.length === 0) {
+                return null;
+            }
+
+            return {
+                id: rows[0].id,
+                verified: rows[0].verified,
+                email_token: token,
+            }
+        } catch (error) {
+            logText(error, "error");
+
+            return null;
+        }
+    },
+    getEmailToken: async (id) => {
+        try {
+            let rows = await database.runQuery(`SELECT * FROM users WHERE id = $1`, [id]);
+
+            if (rows === null || rows.length === 0) {
+                return null;
+            }
+
+            return rows[0].email_token === 'NULL' ? null : rows[0].email_token
+        } catch (error) {
+            logText(error, "error");
+
+            return null;
+        }
+    },
+    updateEmailToken: async (id, new_token) => {
+        try {
+            await database.runQuery(`UPDATE users SET email_token = $1 WHERE id = $2`, [new_token, id]);
+
+            return true;
+        } catch (error) {
+            logText(error, "error");
+
+            return false;
+        }
+    },
+    useEmailToken: async (id, token) => {
+        try {
+            let check = await database.checkEmailToken(token);
+
+            if (!check) {
+                return false;
+            }
+
+            if (check.id !== id) {
+                return false;
+            }
+
+            await database.runQuery(`UPDATE users SET email_token = $1, verified = $2 WHERE id = $3`, ['NULL', 1, id]);
+
+            return true;
+        } catch (error) {
+            logText(error, "error");
+
+            return false;
         }
     },
     getAccountByUserId: async (id) => {
@@ -775,13 +900,13 @@ const database = {
 
                 if (overrides !== null) {
                     return {
-                        username: overrides.username ?? webhook.name,
+                        username: overrides.username === 'NULL' ? webhook.name : overrides.username,
                         discriminator: "0000",
-                        avatar: null,
+                        avatar: overrides.avatar_url ?? null,
                         id: webhookId,
                         bot: true,
                         webhook: true
-                    } //avatar_url todo
+                    }
                 } else {
                     return {
                         username: webhook.name,
@@ -1300,13 +1425,16 @@ const database = {
 
                 //Convert recipient snowflakes to users
                 let recipientUsers = [];
+
                 for (let i = 0; i < recipients.length; i++) {
                     if (!recipients)
                         continue;
                     
                     let user;
+
                     if ((typeof recipients[i]) == "string") {
                         user = await database.getAccountByUserId(recipients[i]);
+
                         if (!user)
                             continue;
                         
@@ -1314,6 +1442,7 @@ const database = {
                     } else {
                         user = recipients[i];
                     }
+
                     if (user)
                         recipientUsers.push(user);
                 }
@@ -1994,6 +2123,30 @@ const database = {
         } catch (error) {
             logText(error, "error");
 
+            return [];
+        }
+    },
+    getGuildMessages: async (guild_id, containsContent, includeNsfw) => {
+        try {
+            const rows = await database.runQuery(`SELECT m.* FROM messages m JOIN channels ch ON m.channel_id = ch.id WHERE m.guild_id = $1 AND LOWER(m.content) LIKE LOWER($2) ${includeNsfw ? "" : "AND ch.nsfw = 0"}`, [guild_id, `%${containsContent}%`]);
+    
+            if (!rows || rows.length === 0) {
+                return [];
+            }
+    
+            const ret = [];
+
+            for (const row of rows) {
+                const message = await database.getMessageById(row.message_id);
+    
+                if (message) {
+                    ret.push(message);
+                }
+            }
+    
+            return ret;
+        } catch (error) {
+            logText(error, "error");
             return [];
         }
     },
@@ -2985,13 +3138,24 @@ const database = {
             return false;
         }
     },
-    //to-do: make the following below async and batch
     deleteChannel: async (channel_id) => {
         try {
-            await database.runQuery(`DELETE FROM invites WHERE channel_id = $1`, [channel_id]);
-            await database.runQuery(`DELETE FROM messages WHERE channel_id = $1`, [channel_id]);
-            await database.runQuery(`DELETE FROM permissions WHERE channel_id = $1`, [channel_id]);
-            await database.runQuery(`DELETE FROM channels WHERE id = $1`, [channel_id]);
+            let [_, messages] = await Promise.all([
+                database.runQuery(`DELETE FROM invites WHERE channel_id = $1`, [channel_id]),
+                database.runQuery(`SELECT * FROM messages WHERE channel_id = $1`, [channel_id])
+            ]);
+
+            if (messages && messages.length > 0) {
+                await Promise.all(messages.map(message => database.deleteMessage(message.message_id)));
+            }
+
+            try { await fsPromises.rm(`./www_dynamic/attachments/${channel_id}`, { recursive: true, force: true }); } catch (error) { }
+
+            await Promise.all([
+                database.runQuery(`DELETE FROM permissions WHERE channel_id = $1`, [channel_id]),
+                database.runQuery(`DELETE FROM channels WHERE id = $1`, [channel_id]),
+                database.runQuery(`DELETE FROM acknowledgements WHERE channel_id = $1`, [channel_id])
+            ]);
 
             return true;
         } catch(error) {
@@ -3012,18 +3176,20 @@ const database = {
             
             const attachments = await database.runQuery(`SELECT * FROM attachments WHERE message_id = $1`, [message_id]);
 
-            if (attachments != null && attachments.length > 0) {
-                for(var attachment of attachments) {
-                    fs.readdirSync(`./www_dynamic/attachments/${message.channel_id}/${attachment.attachment_id}`).forEach((file) => {
-                        const curPath = path.join(`./www_dynamic/attachments/${message.channel_id}/${attachment.attachment_id}`, file);
-                        
-                        fs.unlinkSync(curPath);
-                    });
+            if (attachments && attachments.length > 0) {
+                await Promise.all(attachments.map(async (attachment) => {
+                    const attachmentPath = `./www_dynamic/attachments/${message.channel_id}/${attachment.attachment_id}`;
+                    
+                    try {
+                        const files = await fsPromises.readdir(attachmentPath);
 
-                    fs.rmdirSync(`./www_dynamic/attachments/${message.channel_id}/${attachment.attachment_id}`);
+                        await Promise.all(files.map(file => fsPromises.unlink(path.join(attachmentPath, file))));
 
-                    await database.runQuery(`DELETE FROM attachments WHERE attachment_id = $1`, [attachment.attachment_id]);
-                }
+                        await fsPromises.rmdir(attachmentPath);
+
+                        await database.runQuery(`DELETE FROM attachments WHERE attachment_id = $1`, [attachment.attachment_id]);
+                    } catch (error) { }
+                }));
             }
 
             return true;
@@ -3033,18 +3199,24 @@ const database = {
             return false;
         }
     },
-    //to-do: make the following below async and batch
     deleteGuild: async (guild_id) => {
         try {
             await database.runQuery(`DELETE FROM guilds WHERE id = $1`, [guild_id]);
 
-            await database.runQuery(`DELETE FROM channels WHERE guild_id = $1`, [guild_id]);
+            let channels = await database.runQuery(`SELECT * FROM channels WHERE guild_id = $1`, [guild_id]);
 
-            await database.runQuery(`DELETE FROM roles WHERE guild_id = $1`, [guild_id]);
+            if (channels && channels.length > 0) {
+                await Promise.all(channels.map(channel => database.deleteChannel(channel.id)));
+            }
 
-            await database.runQuery(`DELETE FROM members WHERE guild_id = $1`, [guild_id]);
-
-            await database.runQuery(`DELETE FROM widgets WHERE guild_id = $1`, [guild_id]);
+            await Promise.all([
+                database.runQuery(`DELETE FROM messages WHERE guild_id = $1`, [guild_id]),
+                database.runQuery(`DELETE FROM roles WHERE guild_id = $1`, [guild_id]),
+                database.runQuery(`DELETE FROM members WHERE guild_id = $1`, [guild_id]),
+                database.runQuery(`DELETE FROM widgets WHERE guild_id = $1`, [guild_id]),
+                database.runQuery(`DELETE FROM bans WHERE guild_id = $1`, [guild_id]),
+                database.runQuery(`DELETE FROM webhooks WHERE guild_id = $1`, [guild_id])
+            ]);
 
             return true;
         } catch(error) {
@@ -3122,6 +3294,61 @@ const database = {
             return null;
         }
     },
+    getNoteForUserId: async (requester_id, user_id) => {
+        try {
+            const rows = await database.runQuery(`SELECT * FROM user_notes WHERE author_id = $1 AND user_id = $2`, [requester_id, user_id]);
+  
+            if (rows === null || rows.length === 0) {
+                return null;
+            }
+
+            return rows[0].note === 'NULL' ? null : rows[0].note;
+        } catch(error) {
+            logText(error, "error");
+
+            return null;
+        }
+    },
+    getNotesByAuthorId: async (requester_id) => {
+        try {
+            const rows = await database.runQuery(`SELECT * FROM user_notes WHERE author_id = $1`, [requester_id]);
+  
+            if (rows === null || rows.length === 0) {
+                return [];
+            }
+
+            let notes = {};
+
+            for(var row of rows) {
+                notes[row.user_id] = row.note;
+            }
+
+            return notes;
+        } catch(error) {
+            logText(error, "error");
+
+            return [];
+        }
+    },
+    updateNoteForUserId: async (requester_id, user_id, new_note) => {
+        try {
+            let notes = await database.getNoteForUserId(requester_id, user_id);
+
+            if (!notes) {
+                await database.runQuery(`INSERT INTO user_notes (author_id, user_id, note) VALUES ($1, $2, $3)`, [requester_id, user_id, new_note === null ? 'NULL' : new_note]);
+    
+                return true;
+            }
+    
+            await database.runQuery(`UPDATE user_notes SET note = $1 WHERE author_id = $2 AND user_id = $3`, [new_note === null ? 'NULL' : new_note, requester_id, user_id]);
+    
+            return true;
+        } catch (error) {
+            logText(error, "error");
+
+            return false;
+        }
+    },
     createMessage: async (guild_id , channel_id, author_id, content, nonce, attachment, tts, mention_everyone, webhookOverride = null, webhook_embeds = null) => {
         try {
             const id = Snowflake.generate();
@@ -3147,8 +3374,8 @@ const database = {
                 }
 
                 if (webhookOverride !== null) {
-                    author.username = webhookOverride.username;
-                    author.avatar = null; //to-do
+                    author.username = webhookOverride.username ?? webhook.name;
+                    author.avatar = webhookOverride.avatar_url ?? null;
                 }
             } else author = await database.getAccountByUserId(author_id);
 
@@ -3162,7 +3389,7 @@ const database = {
 
             let embeds = await embedder.generateMsgEmbeds(content, attachment);
 
-            if (webhook_embeds) {
+            if (webhook_embeds && (Array.isArray(webhook_embeds) && webhook_embeds.length > 0)) {
                 embeds = webhook_embeds;   
             }
 
@@ -3690,6 +3917,7 @@ const database = {
                         activities: [],
                         user: globalUtils.miniUserObject(owner),
                     }],
+                    features: [],
                     icon: icon,
                     splash: null,
                     banner: null,
@@ -3762,7 +3990,7 @@ const database = {
             return null;
         }
     },
-    createAccount: async (username, email, password) => {
+    createAccount: async (username, email, password, ip, email_token = null) => {
         // New accounts via invite (unclaimed account) have null email and null password.
         try {
             let user = await database.getAccountByEmail(email);
@@ -3795,7 +4023,7 @@ const database = {
 
             let token = globalUtils.generateToken(id, pwHash);
 
-            await database.runQuery(`INSERT INTO users (id,username,discriminator,email,password,token,created_at,avatar) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [id, username, discriminator.toString(), email, password ? pwHash : null, token, date, 'NULL'])
+            await database.runQuery(`INSERT INTO users (id,username,discriminator,email,password,token,created_at,avatar,registration_ip,verified,email_token) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [id, username, discriminator.toString(), email, password ? pwHash : null, token, date, 'NULL', ip, config.email_config.enabled ? 0 : 1, email_token ?? 'NULL']);
 
             return {
                 token: token
@@ -3993,7 +4221,18 @@ const database = {
             return -1;
         }
     },
-    checkAccount: async (email, password) => {
+    unverifyEmail: async (id) => {
+        try {
+            await database.runQuery(`UPDATE users SET verified = $1 WHERE id = $2`, [0, id]);
+
+            return true;
+        } catch (error) {
+            logText(error, "error");
+
+            return false;
+        }
+    },
+    checkAccount: async (email, password, ip) => {
         try {
             let user = await database.getAccountByEmail(email);
 
@@ -4020,6 +4259,8 @@ const database = {
                     reason: "Email and/or password is invalid."
                 }
             }
+
+            await database.runQuery(`UPDATE users SET last_login_ip = $1 WHERE id = $2`, [ip, user.id]);
 
             return {
                 token: user.token

@@ -49,7 +49,7 @@ router.post("/", instanceMiddleware("NO_GUILD_CREATION"), rateLimitMiddleware(gl
             });
         }
 
-        if (req.body.region != "everything" && req.client_build_date.getFullYear() != parseInt(req.body.region)) {
+        if (req.body.region != "everything" && globalUtils.canUseServer(req.client_build_date.getFullYear(), req.body.region)) {
             return res.status(400).json({
                 name: "Year must be your current client build year or pick everything."
             });
@@ -183,6 +183,56 @@ async function guildDeleteRequest(req, res) {
 router.post("/:guildid/delete", guildMiddleware, rateLimitMiddleware(global.config.ratelimit_config.leaveGuild.maxPerTimeFrame, global.config.ratelimit_config.leaveGuild.maxPerTimeFrame), guildDeleteRequest);
 
 router.delete("/:guildid", guildMiddleware, rateLimitMiddleware(global.config.ratelimit_config.deleteGuild.maxPerTimeFrame, global.config.ratelimit_config.deleteGuild.timeFrame), guildDeleteRequest);
+
+router.get("/:guildid/messages/search", guildMiddleware, guildPermissionsMiddleware("READ_MESSAGE_HISTORY"), async (req, res) => {
+    try {
+        const account = req.account;
+
+        if (!account) {
+            return res.status(401).json({
+                code: 401,
+                message: "Unauthorized"
+            });
+        }
+        
+        let guild = req.guild;
+
+        if (!guild) {
+            return res.status(500).json({
+                code: 500,
+                message: "Internal Server Error"
+            }); 
+        }
+
+        let content = req.query.content;
+        let include_nsfw = req.query.include_nsfw === "true" ?? false;
+
+        let results = await global.database.getGuildMessages(guild.id, content, include_nsfw);
+
+        let ret_results = [];
+
+        for(var result of results) {
+            ret_results.push([
+                result
+            ]); //..why?
+        }
+
+        return res.status(200).json({
+            messages: results,
+            analytics_id: null,
+            total_results: results.length,
+            doing_deep_historical_index: false,
+            documents_indexed: true
+        });
+    } catch (error) {
+        logText(error, "error");
+    
+        return res.status(500).json({
+          code: 500,
+          message: "Internal Server Error"
+        });
+    }
+});
 
 router.patch("/:guildid", guildMiddleware, guildPermissionsMiddleware("MANAGE_GUILD"), rateLimitMiddleware(global.config.ratelimit_config.updateGuild.maxPerTimeFrame, global.config.ratelimit_config.updateGuild.timeFrame), async (req, res) => {
     try {

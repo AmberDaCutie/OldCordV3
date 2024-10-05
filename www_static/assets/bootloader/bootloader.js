@@ -1,7 +1,7 @@
 window.__require = window.require;
 window.__OVERLAY__ = window.overlay != null;
 
-window.cdn_url = "https://cdn.oldcordapp.com";
+window.cdn_url = "https://cdn.meowcord.onrender.com";
 
 let config;
 function loadLog(text, error, noLog) {
@@ -80,6 +80,10 @@ function patchJS(script, kind) {
     //Allow emojis anywhere
     script = script.replace(/isEmojiDisabled:function\([^)]*\){/, "$&return false;");
     script = script.replaceAll(/=t.invalidEmojis/g, "=[]");
+
+    //Recaptcha support
+    if (config.captcha_options.enabled)
+        script = script.replaceAll("6Lef5iQTAAAAAKeIvIY-DeexoO3gj7ryl9rLMEnn", config.captcha_options.site_key);
 
     //Disable telemetry
     script = script.replace(/track:function\([^)]*\){/, "$&return;");
@@ -197,14 +201,15 @@ async function timer(ms) {
         return
     }
 
-    if ((release_date == "november_16_2017" ||
-        release_date == "december_21_2017" ||
-        release_date == "january_27_2018" ||
-        release_date == "march_24_2018" ||
-        release_date == "april_1_2018" ||
-        release_date == "april_23_2018")
-         && localStorage && !localStorage.getItem("token")) {
-        loadLog("Warning: You aren't logged in, and the login page is BROKEN on this build. Switching to February 25 2018 temporarily.", true, true);
+    const brokenLogin = [ "november_16_2017", "december_21_2017", "january_27_2018", "march_7_2018", "april_1_2018", "april_23_2018" ].includes(release_date);
+    const noCaptchaSupport = release_date.endsWith("_2015") || release_date.endsWith("_2016");
+    if ((noCaptchaSupport || brokenLogin) && localStorage && !localStorage.getItem("token")) {
+        if (noCaptchaSupport)
+            loadLog("Warning: You aren't logged in, and this build does not support the captcha required for registration. Switching to February 25 2018 temporarily.", true, true);
+        
+        if (brokenLogin)
+            loadLog("Warning: You aren't logged in, and the login page is BROKEN on this build. Switching to February 25 2018 temporarily.", true, true);
+        
         release_date = "february_25_2018";
         
         //Wait until the user has logged in, then refresh

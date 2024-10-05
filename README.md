@@ -5,9 +5,10 @@ Current code for OldCord (Rewritten) as typescript sucks for this kinda project.
 
 # Credits
 ziad - token generation, permissions, sessions references, and some middleware references <br>
-Deskehs - electron client stuff & modern discord client shenanigans (Wumpdle, rePacker, reUpdater & Electron compat patch) <br>
-dogsong - client patcher & the patches <br>
+Deskehs - branding, electron client patching & modifications, general assistance with backend <br>
+dogsong - web client bootloader contributions, major aid in cleaning up the backend and squashing bugs <br>
 discord.js - snowflake <br>
+unkn0w - disposable email domain list <br>
 noia - everything else <br>
 
 # Important, read me!
@@ -23,6 +24,9 @@ Run npm install and then node server.js to start Oldcord.
 Since V3 is hosted on my own server at home, I use cloudflared to bypass CG-NAT and have enabled cloudflare's free SSL so the SSL stuff in the earlier configuration is kinda deprecated.
 
 custom_invite_url is used for invites in the app, so, putting "oldcord.us" will make it so every invite made has the prefix oldcord.us - much like discord.gg, etc.
+
+There are Google Recaptcha v2 demo site & secret keys in the config example which you may find useful to look at when looking to enable recaptcha on your instance. If you'd like to not have recaptcha enabled, just set the sitekey and secret key to "" (blank). <br>
+Also <b>it is highly recommended you change those values if you do plan on using Recaptcha on production. Since it's a demo site key, all answers are valid.</b>⚠️
 
 integration_config is for the in-app connections under user settings, currently only twitch is supported, and you need to make a twitch application which gives you a client_secret to use this.
 

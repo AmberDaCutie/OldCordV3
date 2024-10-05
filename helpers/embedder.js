@@ -1,11 +1,78 @@
+const fetch = require('node-fetch');
 const ytdl = require('@distube/ytdl-core');
 const { logText } = require('./logger');
 const globalUtils = require('./globalutils');
+const cheerio = require('cheerio');
+
+const hexToDecimal = (hex) => {
+    if (hex.startsWith('#')) {
+        hex = hex.slice(1);
+    }
+
+    return parseInt(hex, 16);
+};
 
 const embedder = {
     embed_cache: [],
     getEmbedInfo: async (url) => {
-        return null; //to-do
+        try {
+            let content = await fetch(url, {
+                headers: {
+                    'User-Agent' : 'Bot: Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)'
+                }
+            })
+    
+            if (!content.ok) {
+                return null;
+            }
+
+            if (url.endsWith(".png") || url.endsWith(".jpg") || url.endsWith(".jpeg")) {
+                return null; //external image embeds do not work that well.
+            }
+
+            let should_embed = false;
+            let text = await content.text();
+            let $ = cheerio.load(text);
+            let title = $('title').text();
+            let description = $('meta[name="description"]').attr('content') ?? '';
+            let color = $('meta[name="theme-color"]').attr('content') ? hexToDecimal($('meta[name="theme-color"]').attr('content')) : 7506394;
+            let ogTitle = $('meta[property="og:title"]').attr('content');
+            let twitterImage = $('meta[property="twitter:image"]').attr('content');
+
+            let ogImage = $('meta[property="og:image"]').attr('content');
+            
+            if (!ogImage && twitterImage) {
+                ogImage = twitterImage;
+            }
+            
+            if (description || color || ogTitle || ogImage) {
+                should_embed = true;
+            }
+            
+            if (should_embed && ogTitle) {
+                title = ogTitle;
+            }
+
+            let embedObj = {
+                color: color,
+                title: title,
+                description: description
+            }
+
+            if (ogImage) {
+                embedObj.image = {
+                    url: ogImage,
+                    width: 80,
+                    height: 80
+                }
+            } //to-do: auto get image width & height
+
+            return should_embed ? embedObj : null;
+        } catch (error) {
+            logText(error, "error");
+
+            return null;
+        }
     },
     embedAttachedVideo: (url) => {
         return { 
@@ -55,7 +122,7 @@ const embedder = {
                 description: videoDetails.description,
                 title: videoDetails.title,
                 thumbnail: {
-                    proxy_url: thumbnailUrl,
+                    proxy_url: `/proxy?url=${thumbnailUrl}`,
                     url: thumbnailUrl,
                     width: thumbnailWidth,
                     height: thumbnailHeight
@@ -97,14 +164,17 @@ const embedder = {
                 continue;
             }
 
-            let type = "image";
             let embed = {};
             
-            if (url.includes("youtube.com") || url.includes("youtu.be")) {
+            if (url.includes("youtube.com/watch?v=") || url.includes("youtu.be/")) {
                 embed = await embedder.embedYouTube(url);
             }
+
+            if ((global.config.custom_invite_url != "" && url.includes(global.config.custom_invite_url)) || url.includes("oldcord.us") || url.includes("/invite/")) {
+                continue;
+            }
             
-            if (!embed) {
+            if (!embed.title) {
                 let result = await embedder.getEmbedInfo(url);
 
                 if (result == null) {
@@ -112,26 +182,20 @@ const embedder = {
                 }
 
                 embed = {
-                    type: type,
-                    inlineMedia: true,
+                    type: "rich",
                     url: url,
-                    description: result.data.description,
-                    title: result.data.title,
-                    thumbnail: result.data.image != null ? {
-                        proxy_url: result.data.image.url,
-                        url: result.data.image.url,
-                        width: (result.data.image.width > 800 ? 800 : result.data.image.width),
-                        height: (result.data.image.height > 800 ? 800 : result.data.image.height)
-                    } : null,
-                    author: result.data.author != null ? {
-                        url: url,
-                        name: result.data.author
-                    } : null,
-                    provider: {
-                        url: url,
-                        name: result.data.publisher
-                    }
+                    color: result.color,
+                    description: result.description,
+                    title: result.title,
+                    thumbnail: result.image != null ? {
+                        proxy_url: `/proxy?url=${result.image.url}`,
+                        url: result.image.url,
+                        width: (result.image.width > 800 ? 800 : result.image.width),
+                        height: (result.image.height > 800 ? 800 : result.image.height)
+                    } : null
                 };
+
+                if (!embed.thumbnail) delete embed.thumbnail;
             }
 
             ret.push(embed);

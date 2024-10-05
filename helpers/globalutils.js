@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const encode = require('base64url');
 const fs = require('fs');
 const { logText } = require('./logger');
+const { default: fetch } = require('node-fetch');
 
 const configPath = "./config.json";
 
@@ -120,16 +121,13 @@ const globalUtils = {
     getRegions: () => {
         return [{
             id: "2016",
-            name: "2016 Only"
+            name: "2015-2016"
         }, {
             id: "2017",
-            name: "2017 Only"
+            name: "2015-2017"
         }, {
             id: "2018",
-            name: "2018 Only"
-        }, {
-            id: "2019",
-            name: "2019 Only"
+            name: "2015-2018"
         }, {
             id: "everything",
             name: "Everything"
@@ -137,6 +135,22 @@ const globalUtils = {
     },
     serverRegionToYear: (region) => {
         return globalUtils.getRegions().find(x => x.id.toLowerCase() == region) ? globalUtils.getRegions().find(x => x.id.toLowerCase() == region).name : "everything"
+    },
+    canUseServer: (year, region) => {
+        let serverRegion = globalUtils.serverRegionToYear(region);
+
+        if (serverRegion.toLowerCase() === "everything") {
+            return true;
+        }
+
+        let firstYear = serverRegion.split('-')[0];
+        let lastYear = serverRegion.split('-')[1];
+
+        if (year > parseInt(lastYear) || year < parseInt(firstYear)) {
+            return false;
+        }
+
+        return true;
     },
     generateToken: (user_id, password_hash) => {
         //sorry ziad but im stealing this from hummus source, love you
@@ -305,6 +319,24 @@ const globalUtils = {
             username: ""
         }
     },
+    badEmail: async (email) => {
+        /*
+        try {
+            let domain = email.split('@')[1];
+
+            let response = await fetch("https://raw.githubusercontent.com/unkn0w/disposable-email-domain-list/main/domains.txt");
+
+            if (response.ok && !(await response.text()).includes(domain.toLowerCase())) {
+                return false;
+            }
+
+            return true;
+        } catch {
+            return true;
+        }
+        */
+       return false; //to-do
+    },
     prepareAccountObject: (rows, relationships) => {
         if (rows === null || rows.length === 0) {
             return null;
@@ -318,7 +350,7 @@ const globalUtils = {
             email: rows[0].email,
             password: rows[0].password,
             token: rows[0].token,
-            verified: true,
+            verified: rows[0].verified == 1 ? true : false,
             premium: true,
             flags: rows[0].flags ?? 0,
             bot: rows[0].bot == 1 ? true : false,
