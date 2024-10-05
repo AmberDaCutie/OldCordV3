@@ -2,7 +2,7 @@
     "token_secret": "35c8...",
     "secure": true,
     "base_url": "localhost",
-    "gateway_url": "staging.oldcordapp.com",
+    "gateway_url": "meowcord.onrender.com",
     "port": 443,
     "ws_port": 443,
     "cache404s": false,
@@ -21,7 +21,7 @@
     },
     "gcs_config" : { },
     "trusted_users" : [],
-    "custom_invite_url" : "",
+    "custom_invite_url" : "meowcord.mew/invite/",
     "integration_config" : [],
     "ratelimit_config" : {
         "enabled" : false,
