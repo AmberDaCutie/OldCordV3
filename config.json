@@ -86,7 +86,7 @@
     },
     "gcs_config" : { },
     "trusted_users" : [],
-    "custom_invite_url" : "meowcord.mew",
+    "custom_invite_url" : "meowcord.mew/invite/",
     "integration_config" : [],
     "ratelimit_config" : {
         "enabled" : false,
