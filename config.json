@@ -27,6 +27,11 @@
         "user": "m_e_o_w",
         "password": "bxt0WTRFnHk7HeOKzeHIOhiyrjeeQNor"
     },
+    "email_config": {
+        "fromAddress": "pinkiepief1@gmail.com",
+        "brevo-api-key": "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",
+        "enabled": false
+    },
     "limits" : {
         "username" : {
             "min" : 2,
