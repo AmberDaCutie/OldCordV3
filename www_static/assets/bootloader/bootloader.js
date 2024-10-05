@@ -1,7 +1,7 @@
 window.__require = window.require;
 window.__OVERLAY__ = window.overlay != null;
 
-window.cdn_url = "https://cdn.meowcord.onrender.com";
+window.cdn_url = "https://cdn.oldcordapp.com";
 
 let config;
 function loadLog(text, error, noLog) {
