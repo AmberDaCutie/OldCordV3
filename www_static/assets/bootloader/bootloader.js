@@ -74,7 +74,7 @@ function patchJS(script, kind) {
     script = script.replace(/n\.p\+"[a-z0-9]+\.worker\.js"/, `window.userSearchWorker()`);
 
     //Enable april fools @someone experiment
-    if (release_date == "april_1_2018" || release_date == "april_23_2018")
+    if (release_date == "april_1_2018" || release_date == "april_23_2018" || release_date == "november_30_2018")
         script = script.replaceAll("null!=e&&e.bucket!==f.ExperimentBuckets.CONTROL", "true");
 
     //Allow emojis anywhere
@@ -236,9 +236,9 @@ async function timer(ms) {
         "API_ENDPOINT": "//" + location.host + "/api",
         "API_VERSION": 6,
         "GATEWAY_ENDPOINT": config.gateway,
-        "WEBAPP_ENDPOINT": cdn_url,
-        "CDN_HOST": "//" + location.host,
-        "ASSET_ENDPOINT": cdn_url,
+        "WEBAPP_ENDPOINT": "https://cdn.oldcordapp.com",
+        "CDN_HOST": "https://cdn.jsdelivr.net", //+ location.host,
+        "ASSET_ENDPOINT": "https://cdn.oldcordapp.com",
         "MEDIA_PROXY_ENDPOINT": "//" + location.host,
         "WIDGET_ENDPOINT": "",
         "INVITE_HOST": config.custom_invite_url,
